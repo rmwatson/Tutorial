@@ -8,6 +8,8 @@
     <!-- Needed to list every app installed on the TV. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Talks to your Jellyfin server for "Continue watching". -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Lets the "Uninstall" menu option open the system uninstall prompt. -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
@@ -16,7 +18,8 @@
         android:banner="@drawable/banner"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/LauncherTheme">
+        android:theme="@style/LauncherTheme"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

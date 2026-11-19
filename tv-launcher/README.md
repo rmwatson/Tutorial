@@ -13,6 +13,15 @@ grid, seven colour themes, and no ads or recommendations.
 | Apps per row, hidden apps, Home button on/off, go back to Google's home | **Options** button at the top |
 | Back to the top | **Back** or **Home** |
 
+## Continue watching from Jellyfin
+
+**Options → Jellyfin: sign in for Continue watching**, then enter your server (e.g. `192.168.1.10:8096`),
+username and password. A **Continue watching** row appears at the top with everything you're part-way
+through (with a progress bar) plus the next episode of shows you're following. Select one and the
+Jellyfin app opens on that film or episode – press **Resume**. The row refreshes every time you come
+back to the home screen. Only a sign-in token is saved, never your password; sign out from Options.
+Needs the Jellyfin app from the Play Store.
+
 ## Installing it
 
 The newest build is always here (GitHub builds it automatically):

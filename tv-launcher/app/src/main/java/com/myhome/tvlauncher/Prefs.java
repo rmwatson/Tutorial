@@ -19,6 +19,11 @@ final class Prefs {
     private static final String KEY_TAKE_OVER_HOME = "take_over_home";
     private static final String KEY_COLUMNS = "columns";
     private static final String KEY_PAUSED_UNTIL = "paused_until";
+    private static final String KEY_JF_SERVER = "jellyfin_server";
+    private static final String KEY_JF_TOKEN = "jellyfin_token";
+    private static final String KEY_JF_USER_ID = "jellyfin_user_id";
+    private static final String KEY_JF_USER_NAME = "jellyfin_user_name";
+    private static final String KEY_DEVICE_ID = "device_id";
 
     private final SharedPreferences sp;
 
@@ -96,6 +101,35 @@ final class Prefs {
 
     void setColumns(int columns) {
         sp.edit().putInt(KEY_COLUMNS, columns).apply();
+    }
+
+    // ---- Jellyfin (the password is never stored, only the sign-in token)
+
+    String jellyfinServer() { return sp.getString(KEY_JF_SERVER, null); }
+
+    String jellyfinToken() { return sp.getString(KEY_JF_TOKEN, null); }
+
+    String jellyfinUserId() { return sp.getString(KEY_JF_USER_ID, null); }
+
+    String jellyfinUserName() { return sp.getString(KEY_JF_USER_NAME, null); }
+
+    void setJellyfin(String server, String token, String userId, String userName) {
+        sp.edit().putString(KEY_JF_SERVER, server).putString(KEY_JF_TOKEN, token)
+                .putString(KEY_JF_USER_ID, userId).putString(KEY_JF_USER_NAME, userName).apply();
+    }
+
+    /** Signs out but remembers the server address for next time. */
+    void clearJellyfin() {
+        sp.edit().remove(KEY_JF_TOKEN).remove(KEY_JF_USER_ID).remove(KEY_JF_USER_NAME).apply();
+    }
+
+    String deviceId() {
+        String id = sp.getString(KEY_DEVICE_ID, null);
+        if (id == null) {
+            id = java.util.UUID.randomUUID().toString().replace("-", "");
+            sp.edit().putString(KEY_DEVICE_ID, id).apply();
+        }
+        return id;
     }
 
     private static List<String> split(String s) {

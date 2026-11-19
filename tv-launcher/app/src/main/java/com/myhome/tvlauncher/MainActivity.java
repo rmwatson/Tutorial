@@ -11,6 +11,7 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -21,6 +22,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.TypedValue;
@@ -28,6 +30,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
@@ -75,6 +78,13 @@ public class MainActivity extends Activity {
     /** Tag of the card to focus after rebuilding the screen, e.g. "fav:com.netflix.ninja". */
     private String focusTag;
 
+    private Jellyfin jellyfin;
+    private LinearLayout jellyfinSection;
+    private List<Jellyfin.Item> jellyfinItems;
+    private String jellyfinStatus;
+    private int wideCardWidth;
+    private int accentColour;
+
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
@@ -95,6 +105,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = new Prefs(this);
+        jellyfin = new Jellyfin(prefs);
         root = new FrameLayout(this);
         setContentView(root);
 
@@ -111,6 +122,7 @@ public class MainActivity extends Activity {
         super.onResume();
         if (dirty) rebuild();
         handler.post(tick);
+        refreshJellyfin();
     }
 
     @Override
@@ -181,6 +193,20 @@ public class MainActivity extends Activity {
         int gap = dp(20);
         int cardWidth = (screenWidth - 2 * side - (columns - 1) * gap) / columns;
         int cardHeight = cardWidth * 9 / 16;
+
+        accentColour = accent;
+        wideCardWidth = cardWidth * 5 / 4;
+
+        // Continue watching (Jellyfin)
+        jellyfinSection = null;
+        if (jellyfin.isSignedIn()) {
+            jellyfinSection = new LinearLayout(this);
+            jellyfinSection.setOrientation(LinearLayout.VERTICAL);
+            jellyfinSection.setClipChildren(false);
+            jellyfinSection.setClipToPadding(false);
+            page.addView(jellyfinSection, new LinearLayout.LayoutParams(-1, -2));
+            fillJellyfinSection();
+        }
 
         // Favourites row
         page.addView(sectionTitle("Favourites"));
@@ -419,7 +445,7 @@ public class MainActivity extends Activity {
     }
 
     private View findFirstCard(View v) {
-        if (v.getTag() instanceof String && ((String) v.getTag()).matches("(fav|all):.*")) return v;
+        if (v.getTag() instanceof String && ((String) v.getTag()).matches("(jf|fav|all):.*")) return v;
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
             for (int i = 0; i < g.getChildCount(); i++) {
@@ -438,6 +464,237 @@ public class MainActivity extends Activity {
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         String greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
         date.setText(greeting + "  ·  " + new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(now));
+    }
+
+    // ---------------------------------------------------------------- Jellyfin
+
+    private void refreshJellyfin() {
+        if (!jellyfin.isSignedIn()) return;
+        jellyfin.loadContinueWatching((items, error) -> {
+            if (error != null) {
+                jellyfinStatus = error;
+                if (!jellyfin.isSignedIn()) jellyfinItems = null;
+            } else {
+                jellyfinStatus = null;
+                jellyfinItems = items;
+            }
+            fillJellyfinSection();
+        });
+    }
+
+    /** Redraws only the Continue watching row, keeping focus where it was. */
+    private void fillJellyfinSection() {
+        if (jellyfinSection == null) return;
+        View focused = getCurrentFocus();
+        String keep = null;
+        if (focused != null && focused.getTag() instanceof String
+                && ((String) focused.getTag()).startsWith("jf:")) {
+            keep = (String) focused.getTag();
+        }
+        jellyfinSection.removeAllViews();
+        jellyfinSection.addView(sectionTitle("Continue watching"));
+
+        List<Jellyfin.Item> items = jellyfinItems;
+        if (items == null || items.isEmpty()) {
+            TextView hint = new TextView(this);
+            String msg;
+            if (jellyfinStatus != null && jellyfinStatus.contains("expired")) {
+                msg = "Jellyfin sign-in expired. Sign in again from Options.";
+            } else if (jellyfinStatus != null) {
+                msg = jellyfinStatus + ".";
+            } else if (items == null) {
+                msg = "Loading from Jellyfin…";
+            } else {
+                msg = "Nothing in progress. Start something in Jellyfin and it'll show up here.";
+            }
+            hint.setText(msg);
+            hint.setTextColor(0xB3FFFFFF);
+            hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+            hint.setPadding(0, dp(8), 0, dp(16));
+            jellyfinSection.addView(hint);
+            return;
+        }
+
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.setClipChildren(false);
+        hs.setClipToPadding(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setClipChildren(false);
+        row.setClipToPadding(false);
+        row.setPadding(0, dp(12), dp(24), dp(12));
+        int w = wideCardWidth;
+        int h = w * 9 / 16;
+        for (int i = 0; i < items.size(); i++) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, -2);
+            if (i > 0) lp.leftMargin = dp(20);
+            row.addView(buildMediaCard(items.get(i), w, h), lp);
+        }
+        hs.addView(row);
+        jellyfinSection.addView(hs, new LinearLayout.LayoutParams(-1, -2));
+
+        if (keep != null) {
+            View again = jellyfinSection.findViewWithTag(keep);
+            if (again == null) again = findFirstCard(jellyfinSection);
+            if (again != null) again.requestFocus();
+        }
+    }
+
+    private View buildMediaCard(final Jellyfin.Item item, int width, int height) {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setClipChildren(false);
+
+        final FrameLayout card = new FrameLayout(this);
+        card.setTag("jf:" + item.id);
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setClipToOutline(true);
+        GradientDrawable cardBg = new GradientDrawable();
+        cardBg.setCornerRadius(dp(10));
+        cardBg.setColor(0x26FFFFFF);
+        card.setBackground(cardBg);
+        final GradientDrawable ring = new GradientDrawable();
+        ring.setCornerRadius(dp(10));
+        ring.setColor(Color.TRANSPARENT);
+        card.setForeground(ring);
+
+        // Title shown on the tile until the artwork arrives (or if there is none).
+        TextView placeholder = new TextView(this);
+        placeholder.setText(item.title);
+        placeholder.setTextColor(Color.WHITE);
+        placeholder.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        placeholder.setGravity(Gravity.CENTER);
+        placeholder.setPadding(dp(12), 0, dp(12), 0);
+        card.addView(placeholder, new FrameLayout.LayoutParams(-1, -1));
+
+        final ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        card.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        if (item.imageUrl != null) {
+            jellyfin.loadImage(item.imageUrl, (Bitmap bmp, String err) -> {
+                if (bmp != null) image.setImageBitmap(bmp);
+            });
+        }
+
+        if (item.percent > 0) {
+            View track = new View(this);
+            track.setBackgroundColor(0x66000000);
+            card.addView(track, new FrameLayout.LayoutParams(-1, dp(5), Gravity.BOTTOM));
+            View bar = new View(this);
+            bar.setBackgroundColor(accentColour);
+            int barWidth = (int) (width * Math.min(100, item.percent) / 100);
+            card.addView(bar, new FrameLayout.LayoutParams(Math.max(dp(4), barWidth), dp(5),
+                    Gravity.BOTTOM | Gravity.START));
+        }
+        wrapper.addView(card, new LinearLayout.LayoutParams(width, height));
+
+        TextView title = new TextView(this);
+        title.setText(item.title);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setPadding(dp(2), dp(10), dp(2), 0);
+        wrapper.addView(title, new LinearLayout.LayoutParams(width, -2));
+        if (item.subtitle != null && !item.subtitle.isEmpty()) {
+            TextView sub = new TextView(this);
+            sub.setText(item.subtitle);
+            sub.setTextColor(0xB3FFFFFF);
+            sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            sub.setSingleLine(true);
+            sub.setEllipsize(TextUtils.TruncateAt.END);
+            sub.setPadding(dp(2), dp(2), dp(2), 0);
+            wrapper.addView(sub, new LinearLayout.LayoutParams(width, -2));
+        }
+
+        card.setOnFocusChangeListener((v, has) -> {
+            float s = has ? 1.08f : 1f;
+            card.animate().scaleX(s).scaleY(s).translationZ(has ? dp(8) : 0).setDuration(150).start();
+            ring.setStroke(has ? dp(3) : 0, accentColour);
+            if (has) keepVisible(card);
+        });
+        card.setOnClickListener(v -> openInJellyfin(item.id));
+        card.setOnLongClickListener(v -> {
+            List<String> labels = new ArrayList<>();
+            List<Runnable> actions = new ArrayList<>();
+            labels.add("Open in Jellyfin");
+            actions.add(() -> openInJellyfin(item.id));
+            labels.add("Refresh Continue watching");
+            actions.add(this::refreshJellyfin);
+            dialog(item.title, labels, actions);
+            return true;
+        });
+        return wrapper;
+    }
+
+    /** Opens the film/episode page in the Jellyfin app, where Resume is the first button. */
+    private void openInJellyfin(String itemId) {
+        PackageManager pm = getPackageManager();
+        for (String pkg : Jellyfin.APP_PACKAGES) {
+            Intent i = new Intent()
+                    .setClassName(pkg, Jellyfin.START_ACTIVITY)
+                    .putExtra(Jellyfin.EXTRA_ITEM_ID, itemId)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            if (i.resolveActivity(pm) != null) {
+                safeStart(i);
+                return;
+            }
+        }
+        Toast.makeText(this, "Install the Jellyfin app from the Play Store first", Toast.LENGTH_LONG).show();
+    }
+
+    private void showJellyfinSignIn() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(24), dp(8), dp(24), 0);
+        final EditText server = field("Server, e.g. 192.168.1.10:8096", InputType.TYPE_TEXT_VARIATION_URI);
+        String saved = prefs.jellyfinServer();
+        if (saved != null) server.setText(saved);
+        final EditText user = field("Username", InputType.TYPE_TEXT_VARIATION_NORMAL);
+        final EditText pass = field("Password", InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(server);
+        form.addView(user);
+        form.addView(pass);
+
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Sign in to Jellyfin")
+                .setView(form)
+                .setPositiveButton("Sign in", (di, w) -> {
+                    String s = server.getText().toString().trim();
+                    if (s.isEmpty()) {
+                        Toast.makeText(this, "Enter your server address", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Toast.makeText(this, "Signing in…", Toast.LENGTH_SHORT).show();
+                    jellyfin.signIn(s, user.getText().toString().trim(), pass.getText().toString(),
+                            (name, error) -> {
+                                if (error != null) {
+                                    Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+                                    return;
+                                }
+                                Toast.makeText(this, "Signed in as " + name, Toast.LENGTH_SHORT).show();
+                                jellyfinItems = null;
+                                jellyfinStatus = null;
+                                rebuild();
+                                refreshJellyfin();
+                            });
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        d.show();
+        if (d.getWindow() != null) d.getWindow().setBackgroundDrawable(new ColorDrawable(0xF0202124));
+    }
+
+    private EditText field(String hint, int variation) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | variation);
+        e.setTextColor(Color.WHITE);
+        e.setHintTextColor(0x99FFFFFF);
+        return e;
     }
 
     // ---------------------------------------------------------------- apps
@@ -538,6 +795,18 @@ public class MainActivity extends Activity {
             focusTag = "btn:Options";
             rebuild();
         });
+        if (jellyfin.isSignedIn()) {
+            labels.add("Jellyfin: signed in as " + prefs.jellyfinUserName() + " (sign out)");
+            actions.add(() -> {
+                jellyfin.signOut();
+                jellyfinItems = null;
+                Toast.makeText(this, "Signed out of Jellyfin", Toast.LENGTH_SHORT).show();
+                rebuild();
+            });
+        } else {
+            labels.add("Jellyfin: sign in for Continue watching");
+            actions.add(this::showJellyfinSignIn);
+        }
         final Set<String> hidden = prefs.hidden();
         labels.add("Hidden apps (" + hidden.size() + ")");
         actions.add(this::showHiddenApps);
