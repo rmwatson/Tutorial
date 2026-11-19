@@ -67,6 +67,13 @@ The script uses the TV at `192.168.1.42` (change it with `-TV x.x.x.x` / `TV=x.x
 3. Switches on the **My Home – Home button** accessibility service, so the remote's Home button
    brings you to My Home. (Google TV doesn't let you pick another home app any other way.)
 
+### Stop Google's home screen flashing
+
+`bash tv.sh make-default` makes My Home the TV's real home app, so leaving an app goes straight
+back to it. If the TV won't accept that (or forgets after a restart),
+`bash tv.sh make-default --disable-google-home` switches Google's home screen off – it stays
+installed and `bash tv.sh restore-home` switches it back on.
+
 ### Undo everything
 
 `.\tv.ps1 revert` (Windows) or `./tv.sh revert` (Mac/Linux) switches the service off, uninstalls
