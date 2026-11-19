@@ -3,6 +3,7 @@ package com.myhome.tvlauncher;
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
 import android.os.SystemClock;
+import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
@@ -28,6 +29,26 @@ public class HomeButtonService extends AccessibilityService {
         if (now - lastLaunch < 800) return;
         lastLaunch = now;
 
+        openMyHome();
+    }
+
+    /**
+     * Catches the remote's Home button before Google TV sees it and opens My Home directly,
+     * so Google's home screen never appears on the way.
+     */
+    @Override
+    protected boolean onKeyEvent(KeyEvent event) {
+        if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) return false;
+        Prefs prefs = new Prefs(this);
+        if (!prefs.takeOverHome() || prefs.takeOverPaused()) return false;
+        if (event.getAction() == KeyEvent.ACTION_UP) {
+            lastLaunch = SystemClock.elapsedRealtime();
+            openMyHome();
+        }
+        return true;
+    }
+
+    private void openMyHome() {
         Intent home = new Intent(this, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TOP

@@ -10,10 +10,8 @@
 #                      Back up, then switch off apps for your profile (restorable)
 #   ./tv.sh restore-apps
 #                      Bring back every app removed with 'remove'
-#   ./tv.sh make-default [--disable-google-home]
-#                      Make My Home the TV's real home screen (no flash of Google's home)
 #   ./tv.sh restore-home
-#                      Make Google's home screen the default again
+#                      Make sure Google's home screen is switched on and the default
 #   ./tv.sh ha-setup <address> <token>
 #                      Connect My Home to Home Assistant (e.g. 192.168.1.5:8123 and a long-lived token)
 #
@@ -112,6 +110,19 @@ install() {
     tvsh settings put secure enabled_accessibility_services "$SERVICE"
   elif [[ ":$cur:" != *":$SERVICE:"* ]]; then
     tvsh settings put secure enabled_accessibility_services "$cur:$SERVICE"
+  else
+    # Already on: switch it off and on so the updated service (and its Home-button catching) loads.
+    local others
+    others="$(printf '%s' "$cur" | tr ':' '\n' | grep -v -x -F "$SERVICE" | paste -sd: - || true)"
+    if [ -z "$others" ]; then
+      tvsh settings delete secure enabled_accessibility_services >/dev/null || true
+      sleep 1
+      tvsh settings put secure enabled_accessibility_services "$SERVICE"
+    else
+      tvsh settings put secure enabled_accessibility_services "$others"
+      sleep 1
+      tvsh settings put secure enabled_accessibility_services "$others:$SERVICE"
+    fi
   fi
   tvsh settings put secure accessibility_enabled 1
 
@@ -223,38 +234,6 @@ current_home() {
   tvsh cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -1
 }
 
-make_default() {
-  backup
-  say "Making My Home the TV's home screen…"
-  tvsh cmd role add-role-holder --user 0 android.app.role.HOME "$PKG" >/dev/null 2>&1 || true
-  tvsh cmd package set-home-activity --user 0 "$PKG/.MainActivity" >/dev/null 2>&1 || true
-  sleep 1
-  if current_home | grep -q "^$PKG/"; then
-    echo "Done – My Home is now the home screen. Leaving an app goes straight back to it."
-    echo "Restart the TV once to check it sticks: if Google's home flashes again after a restart,"
-    echo "run:  bash tv.sh make-default --disable-google-home"
-    return
-  fi
-  if [ "${1:-}" != "--disable-google-home" ]; then
-    echo "The TV kept Google's home as the default (it says: $(current_home))."
-    echo "The stronger option switches Google's home screen off (it stays installed, and"
-    echo "'bash tv.sh restore-home' switches it back on):"
-    echo "  bash tv.sh make-default --disable-google-home"
-    return
-  fi
-  say "Switching off Google's home screen…"
-  if tvsh pm disable-user --user 0 "$GOOGLE_HOME" | grep -q -i "disabled"; then
-    grep -q -x "$GOOGLE_HOME" "$BACKUP/disabled-apps.txt" 2>/dev/null || echo "$GOOGLE_HOME" >> "$BACKUP/disabled-apps.txt"
-    tvsh cmd role add-role-holder --user 0 android.app.role.HOME "$PKG" >/dev/null 2>&1 || true
-    sleep 1
-    echo "Home screen now: $(current_home)"
-    tvsh input keyevent KEYCODE_HOME
-    echo "Done. To undo:  bash tv.sh restore-home"
-  else
-    echo "The TV refused – nothing was changed."
-  fi
-}
-
 restore_home() {
   say "Making Google's home screen the default again…"
   if tvsh pm list packages -d | grep -q -x "package:$GOOGLE_HOME"; then
@@ -298,9 +277,8 @@ case "$cmd" in
   backup|install|revert|status) connect "$cmd"; "$cmd" ;;
   ha-setup) connect "$cmd"; ha_setup "${2:-}" "${3:-}" ;;
   audit) connect "$cmd"; audit ;;
-  make-default) connect "$cmd"; make_default "${2:-}" ;;
   restore-home) connect "$cmd"; restore_home ;;
   remove) connect "$cmd"; shift; remove_apps "$@" ;;
   restore-apps) connect "$cmd"; restore_apps ;;
-  *) sed -n '2,21p' "$0"; exit 1 ;;
+  *) sed -n '2,19p' "$0"; exit 1 ;;
 esac
