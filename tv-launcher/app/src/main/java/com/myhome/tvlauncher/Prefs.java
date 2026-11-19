@@ -27,6 +27,8 @@ final class Prefs {
     private static final String KEY_MY_APPS = "my_apps";
     private static final String KEY_HA_URL = "ha_url";
     private static final String KEY_HA_TOKEN = "ha_token";
+    private static final String KEY_HA_CARD_ADDED = "ha_card_added";
+    private static final String KEY_GREETING_NAMES = "greeting_names";
     private static final String KEY_ONLY_MY_APPS = "only_my_apps";
     private static final String KEY_MISSING = "my_apps_missing";
 
@@ -157,6 +159,16 @@ final class Prefs {
     void setHomeAssistant(String url, String token) {
         sp.edit().putString(KEY_HA_URL, url).putString(KEY_HA_TOKEN, token).apply();
     }
+
+    /** True once the Home Assistant tile has been put in My apps (so removing it sticks). */
+    boolean haCardAdded() { return sp.getBoolean(KEY_HA_CARD_ADDED, false); }
+
+    void setHaCardAdded() { sp.edit().putBoolean(KEY_HA_CARD_ADDED, true).apply(); }
+
+    /** Names in the morning greeting, e.g. "Good morning Rory & Louie". */
+    String greetingNames() { return sp.getString(KEY_GREETING_NAMES, "Rory & Louie"); }
+
+    void setGreetingNames(String names) { sp.edit().putString(KEY_GREETING_NAMES, names).apply(); }
 
     void clearHomeAssistant() {
         sp.edit().remove(KEY_HA_URL).remove(KEY_HA_TOKEN).apply();

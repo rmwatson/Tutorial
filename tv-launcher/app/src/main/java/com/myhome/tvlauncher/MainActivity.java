@@ -83,7 +83,10 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private ScrollView scroller;
     private TextView clock;
+    private TextView greeting;
     private TextView date;
+    /** Pseudo package name for the Home Assistant tile in the app rows. */
+    static final String HA_TILE = "ha:dashboard";
     private boolean dirty = true;
     /** Tag of the card to focus after rebuilding the screen, e.g. "fav:com.netflix.ninja". */
     private String focusTag;
@@ -96,6 +99,7 @@ public class MainActivity extends Activity {
     private List<Jellyfin.Item> jellyfinItems;
     private String jellyfinStatus;
     private int wideCardWidth;
+    private int myAppWidth;
     private int accentColour;
 
     private int ticks;
@@ -201,11 +205,12 @@ public class MainActivity extends Activity {
         page.setOrientation(LinearLayout.VERTICAL);
         page.setClipChildren(false);
         page.setClipToPadding(false);
-        int side = dp(48);
-        page.setPadding(side, dp(28), side, dp(48));
+        int side = dp(40);
+        page.setPadding(side, dp(22), side, dp(16));
         scroller.addView(page, new FrameLayout.LayoutParams(-1, -2));
 
-        page.addView(buildHeader());
+        View header = buildHeader();
+        page.addView(header);
 
         List<AppEntry> apps = loadApps();
         Map<String, AppEntry> byPackage = new LinkedHashMap<>();
@@ -233,7 +238,15 @@ public class MainActivity extends Activity {
         }
 
         if (prefs.myApps() == null) setUpMyApps(apps);
+        if (homeAssistant.isConfigured() && !prefs.haCardAdded()) {
+            List<String> mine = prefs.myApps();
+            if (!mine.contains(HA_TILE)) mine.add(0, HA_TILE);
+            prefs.setMyApps(mine);
+            prefs.setHaCardAdded();
+        }
         if (prefs.onlyMyApps()) {
+            fitToScreen(header, byPackage, side, gap);
+            fillJellyfinSection();
             buildMyAppsRow(page, byPackage, side, gap, accent);
             finishRebuild();
             return;
@@ -314,6 +327,82 @@ public class MainActivity extends Activity {
         });
     }
 
+    /**
+     * Works out card sizes so the header, Continue watching and My apps all fit on screen
+     * without scrolling, whatever the TV's resolution and text size.
+     */
+    private void fitToScreen(View header, Map<String, AppEntry> byPackage, int side, int gap) {
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int width = dm.widthPixels - 2 * side;
+        int height = dm.heightPixels - dp(22) - dp(16);
+
+        header.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int used = header.getMeasuredHeight();
+        int title = measureText(sectionTitle("My apps"), width);
+        int caption = measureText(captionView("Ag"), width);
+        int subCaption = measureText(subCaptionView("Ag"), width);
+
+        int count = 0;
+        for (String pkg : prefs.myApps()) if (byPackage.containsKey(pkg)) count++;
+        count = Math.max(count, 1);
+        // My apps: one row across the screen, no wider than a comfortable tile.
+        myAppWidth = Math.min((width - (count - 1) * gap) / count, dp(240));
+        int myAppHeight = myAppWidth * 9 / 16;
+        used += title + dp(10) + myAppHeight + caption;
+        if (!prefs.missingApps().isEmpty()) used += measureText(hint("x"), width);
+
+        if (jellyfin.isSignedIn()) {
+            // Continue watching gets whatever height is left.
+            int remaining = height - used - title - dp(12) - dp(12) - caption - subCaption - dp(8);
+            int cardHeight = Math.max(dp(80), Math.min(remaining, dp(230)));
+            wideCardWidth = cardHeight * 16 / 9;
+        }
+    }
+
+    private int measureText(TextView t, int width) {
+        t.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return t.getMeasuredHeight();
+    }
+
+    private TextView captionView(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        t.setSingleLine(true);
+        t.setPadding(0, dp(8), 0, 0);
+        return t;
+    }
+
+    private TextView subCaptionView(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setSingleLine(true);
+        t.setPadding(0, dp(2), 0, 0);
+        return t;
+    }
+
+    private void editGreetingNames() {
+        final EditText names = field("Names, e.g. Rory & Louie", InputType.TYPE_TEXT_VARIATION_PERSON_NAME);
+        names.setText(prefs.greetingNames());
+        LinearLayout form = new LinearLayout(this);
+        form.setPadding(dp(24), dp(8), dp(24), 0);
+        form.addView(names, new LinearLayout.LayoutParams(-1, -2));
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Good morning …")
+                .setView(form)
+                .setPositiveButton("Save", (di, w) -> {
+                    prefs.setGreetingNames(names.getText().toString().trim());
+                    updateClock();
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        d.show();
+        if (d.getWindow() != null) d.getWindow().setBackgroundDrawable(new ColorDrawable(0xF0202124));
+    }
+
     /** One row of hand-picked apps, sized so they all fit across the screen. */
     private void buildMyAppsRow(LinearLayout page, Map<String, AppEntry> byPackage, int side, int gap, int accent) {
         page.addView(sectionTitle("My apps"));
@@ -325,9 +414,8 @@ public class MainActivity extends Activity {
         if (mine.isEmpty()) {
             page.addView(hint("No apps chosen yet. Go to Options → Choose My apps."));
         } else {
-            int perRow = Math.max(4, Math.min(6, mine.size()));
-            int screenWidth = getResources().getDisplayMetrics().widthPixels;
-            int w = (screenWidth - 2 * side - (perRow - 1) * gap) / perRow;
+            int perRow = Math.max(1, mine.size());
+            int w = myAppWidth;
             int h = w * 9 / 16;
             LinearLayout row = null;
             for (int i = 0; i < mine.size(); i++) {
@@ -336,7 +424,7 @@ public class MainActivity extends Activity {
                     row.setOrientation(LinearLayout.HORIZONTAL);
                     row.setClipChildren(false);
                     row.setClipToPadding(false);
-                    row.setPadding(0, dp(12), 0, dp(4));
+                    row.setPadding(0, dp(10), 0, 0);
                     page.addView(row, new LinearLayout.LayoutParams(-1, -2));
                 }
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, -2);
@@ -433,17 +521,34 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setClipChildren(false);
 
+        // Clock on the left, greeting and date beside it; single lines so nothing gets squashed.
         LinearLayout left = new LinearLayout(this);
-        left.setOrientation(LinearLayout.VERTICAL);
+        left.setOrientation(LinearLayout.HORIZONTAL);
+        left.setGravity(Gravity.CENTER_VERTICAL);
         clock = new TextView(this);
         clock.setTextColor(Color.WHITE);
-        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 54);
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 52);
+        clock.setSingleLine(true);
+        clock.setIncludeFontPadding(false);
         clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        left.addView(clock, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout words = new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        words.setPadding(dp(18), 0, dp(12), 0);
+        greeting = new TextView(this);
+        greeting.setTextColor(Color.WHITE);
+        greeting.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        greeting.setTypeface(Typeface.DEFAULT_BOLD);
+        greeting.setSingleLine(true);
+        greeting.setEllipsize(TextUtils.TruncateAt.END);
         date = new TextView(this);
         date.setTextColor(0xCCFFFFFF);
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        left.addView(clock);
-        left.addView(date);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        date.setSingleLine(true);
+        date.setEllipsize(TextUtils.TruncateAt.END);
+        words.addView(greeting);
+        words.addView(date);
+        left.addView(words, new LinearLayout.LayoutParams(0, -2, 1f));
         header.addView(left, new LinearLayout.LayoutParams(0, -2, 1f));
 
         readingsRow = new LinearLayout(this);
@@ -452,17 +557,7 @@ public class MainActivity extends Activity {
         header.addView(readingsRow, new LinearLayout.LayoutParams(-2, -2));
         showReadings();
 
-        header.addView(pill("Theme", v -> {
-            prefs.setTheme((prefs.theme() + 1) % THEME_NAMES.length);
-            Toast.makeText(this, "Theme: " + THEME_NAMES[prefs.theme()], Toast.LENGTH_SHORT).show();
-            focusTag = "btn:Theme";
-            rebuild();
-        }));
-        if (homeAssistant.isConfigured() || prefs.haUrl() != null) {
-            header.addView(pill("Home", v -> safeStart(new Intent(this, HaActivity.class))));
-        }
         header.addView(pill("Options", v -> showOptions()));
-        header.addView(pill("TV settings", v -> safeStart(new Intent(Settings.ACTION_SETTINGS))));
         return header;
     }
 
@@ -496,7 +591,7 @@ public class MainActivity extends Activity {
         t.setTextColor(Color.WHITE);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setPadding(0, dp(24), 0, dp(4));
+        t.setPadding(0, dp(16), 0, dp(2));
         return t;
     }
 
@@ -619,8 +714,13 @@ public class MainActivity extends Activity {
         String pattern = DateFormat.is24HourFormat(this) ? "HH:mm" : "h:mm";
         clock.setText(new SimpleDateFormat(pattern, Locale.getDefault()).format(now));
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        String greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-        date.setText(greeting + "  ·  " + new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(now));
+        String names = prefs.greetingNames().trim();
+        String hello;
+        if (hour < 12) hello = names.isEmpty() ? "Good morning" : "Good morning " + names;
+        else if (hour < 18) hello = "Good afternoon";
+        else hello = "Good evening";
+        greeting.setText(hello);
+        date.setText(new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(now));
     }
 
     // ---------------------------------------------------------------- Home Assistant
@@ -976,11 +1076,19 @@ public class MainActivity extends Activity {
             }
         }
         List<AppEntry> list = new ArrayList<>(found.values());
+        if (prefs.haUrl() != null) {
+            Drawable banner = getDrawable(R.drawable.ha_banner);
+            list.add(new AppEntry(HA_TILE, "", "", "Home Assistant", banner, banner));
+        }
         Collections.sort(list, (a, b) -> a.label.compareToIgnoreCase(b.label));
         return list;
     }
 
     private void launch(AppEntry app) {
+        if (HA_TILE.equals(app.packageName)) {
+            safeStart(new Intent(this, HaActivity.class));
+            return;
+        }
         Intent intent = new Intent(Intent.ACTION_MAIN)
                 .addCategory(app.category)
                 .setComponent(new ComponentName(app.packageName, app.activityName))
@@ -1021,9 +1129,11 @@ public class MainActivity extends Activity {
                 if (mine != null) { mine.remove(pkg); prefs.setMyApps(mine); }
                 rebuild();
             });
-            labels.add("App info");
-            actions.add(() -> safeStart(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+            if (!pkg.startsWith("ha:")) {
+                labels.add("App info");
+                actions.add(() -> safeStart(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+            }
             focusTag = tag;
             dialog(app.label, labels, actions);
             return;
@@ -1055,6 +1165,17 @@ public class MainActivity extends Activity {
         final List<Runnable> actions = new ArrayList<>();
         final boolean takeOver = prefs.takeOverHome();
 
+        labels.add("Theme: " + THEME_NAMES[Math.max(0, Math.min(prefs.theme(), THEME_NAMES.length - 1))] + " (change)");
+        actions.add(() -> {
+            prefs.setTheme((prefs.theme() + 1) % THEME_NAMES.length);
+            focusTag = "btn:Options";
+            rebuild();
+            showOptions();
+        });
+        labels.add("Morning greeting names: " + prefs.greetingNames());
+        actions.add(this::editGreetingNames);
+        labels.add("TV settings");
+        actions.add(() -> safeStart(new Intent(Settings.ACTION_SETTINGS)));
         final boolean only = prefs.onlyMyApps();
         labels.add("Choose My apps…");
         actions.add(this::chooseMyApps);
