@@ -20,7 +20,8 @@ public class HomeButtonService extends AccessibilityService {
         }
         CharSequence pkg = event.getPackageName();
         if (pkg == null || !isStockLauncher(pkg.toString())) return;
-        if (!new Prefs(this).takeOverHome()) return;
+        Prefs prefs = new Prefs(this);
+        if (!prefs.takeOverHome() || prefs.takeOverPaused()) return;
 
         // Don't fire repeatedly while the stock launcher draws several windows.
         long now = SystemClock.elapsedRealtime();

@@ -18,6 +18,7 @@ final class Prefs {
     private static final String KEY_THEME = "theme";
     private static final String KEY_TAKE_OVER_HOME = "take_over_home";
     private static final String KEY_COLUMNS = "columns";
+    private static final String KEY_PAUSED_UNTIL = "paused_until";
 
     private final SharedPreferences sp;
 
@@ -78,6 +79,15 @@ final class Prefs {
 
     void setTakeOverHome(boolean on) {
         sp.edit().putBoolean(KEY_TAKE_OVER_HOME, on).apply();
+    }
+
+    /** Lets the stock Google TV home stay open for a while without being replaced. */
+    void pauseTakeOver(long millis) {
+        sp.edit().putLong(KEY_PAUSED_UNTIL, System.currentTimeMillis() + millis).apply();
+    }
+
+    boolean takeOverPaused() {
+        return System.currentTimeMillis() < sp.getLong(KEY_PAUSED_UNTIL, 0);
     }
 
     int columns() {

@@ -3,3 +3,6 @@ build/
 local.properties
 *.iml
 .idea/
+tv-backup/
+platform-tools/
+MyHome.apk
