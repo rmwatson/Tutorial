@@ -5,6 +5,11 @@
 #   ./tv.sh install    Back up, then install My Home and switch on its Home-button service
 #   ./tv.sh revert     Put the TV back how it was: switch the service off and uninstall My Home
 #   ./tv.sh status     Show what's installed and switched on right now
+#   ./tv.sh audit      List every app installed and running on the TV (changes nothing)
+#   ./tv.sh remove <app> [app…]
+#                      Back up, then switch off apps for your profile (restorable)
+#   ./tv.sh restore-apps
+#                      Bring back every app removed with 'remove'
 #   ./tv.sh ha-setup <address> <token>
 #                      Connect My Home to Home Assistant (e.g. 192.168.1.5:8123 and a long-lived token)
 #
@@ -113,6 +118,7 @@ install() {
 
 revert() {
   say "Putting the TV back how it was…"
+  restore_apps
   local cur new
   cur="$(tvsh settings get secure enabled_accessibility_services)"
   # Remove only our service, keeping anything else that's switched on.
@@ -150,6 +156,62 @@ revert() {
   fi
 }
 
+audit() {
+  local out="$BACKUP/audit-$(date +%Y%m%d-%H%M%S).txt"
+  mkdir -p "$BACKUP"
+  {
+    echo "== TV"; tvsh getprop ro.product.model; tvsh getprop ro.build.version.release
+    echo; echo "== Apps you installed (package, installer)"; tvsh pm list packages -3 -i | sort
+    echo; echo "== Built-in apps"; tvsh pm list packages -s | sort
+    echo; echo "== Already switched off"; tvsh pm list packages -d | sort
+    echo; echo "== Removed for this profile earlier"; [ -f "$BACKUP/removed-apps.txt" ] && cat "$BACKUP/removed-apps.txt" || echo "(none)"
+    echo; echo "== Running right now"; tvsh ps -A -o USER,NAME | awk '$1 ~ /^u0_a/ {print $2}' | sort -u
+    echo; echo "== Accessibility services"; tvsh settings get secure enabled_accessibility_services
+    echo; echo "== Notification listeners"; tvsh settings get secure enabled_notification_listeners
+    echo; echo "== Keyboard"; tvsh settings get secure default_input_method
+    echo; echo "== Device admins"; tvsh dumpsys device_policy | grep -E '^ *Admin|ComponentInfo' | sed 's/^ *//' | sort -u || true
+    echo; echo "== Allowed to draw over other apps"; tvsh cmd appops query-op SYSTEM_ALERT_WINDOW allow 2>/dev/null || true
+    echo; echo "== Allowed to install other apps"; tvsh cmd appops query-op REQUEST_INSTALL_PACKAGES allow 2>/dev/null || true
+  } | tee "$out"
+  say "Saved to ${out#$DIR/}"
+}
+
+remove_apps() {
+  if [ $# -eq 0 ]; then echo "Usage: ./tv.sh remove <package> [package…]"; exit 1; fi
+  backup
+  say "Removing for your profile (restore any time with: ./tv.sh restore-apps)…"
+  local pkg
+  for pkg in "$@"; do
+    if [ "$pkg" = "$PKG" ] || [ "$pkg" = "com.google.android.apps.tv.launcherx" ] || [ "$pkg" = "com.google.android.tvlauncher" ]; then
+      echo "  skipped $pkg (needed by My Home or the TV)"; continue
+    fi
+    if ! tvsh pm list packages | grep -q -x "package:$pkg"; then
+      echo "  $pkg is not installed – skipped"; continue
+    fi
+    if tvsh pm uninstall -k --user 0 "$pkg" | grep -q Success; then
+      echo "$pkg" >> "$BACKUP/removed-apps.txt"
+      echo "  removed $pkg"
+    else
+      echo "  couldn't remove $pkg – left as it was"
+    fi
+  done
+}
+
+restore_apps() {
+  if [ ! -s "$BACKUP/removed-apps.txt" ]; then echo "No removed apps to restore."; return; fi
+  say "Bringing back removed apps…"
+  local pkg left=""
+  while read -r pkg; do
+    [ -z "$pkg" ] && continue
+    if tvsh cmd package install-existing "$pkg" | grep -q -i "installed\|success"; then
+      echo "  restored $pkg"
+    else
+      echo "  couldn't restore $pkg"; left="$left$pkg"$'\n'
+    fi
+  done < <(sort -u "$BACKUP/removed-apps.txt")
+  printf '%s' "$left" > "$BACKUP/removed-apps.txt"
+}
+
 ha_setup() {
   local url="${1:-}" token="${2:-}"
   if [ -z "$url" ] || [ -z "$token" ]; then
@@ -177,5 +239,8 @@ cmd="${1:-}"
 case "$cmd" in
   backup|install|revert|status) connect "$cmd"; "$cmd" ;;
   ha-setup) connect "$cmd"; ha_setup "${2:-}" "${3:-}" ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  audit) connect "$cmd"; audit ;;
+  remove) connect "$cmd"; shift; remove_apps "$@" ;;
+  restore-apps) connect "$cmd"; restore_apps ;;
+  *) sed -n '2,17p' "$0"; exit 1 ;;
 esac
