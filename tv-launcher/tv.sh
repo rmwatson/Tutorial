@@ -41,11 +41,11 @@ connect() {
   find_adb
   say "Connecting to the TV at $SERIAL…"
   "$ADB" connect "$SERIAL" >/dev/null || true
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 60); do
     state="$("$ADB" -s "$SERIAL" get-state 2>&1 || true)"
     case "$state" in
-      *device*) echo "Connected."; return ;;
-      *unauthorized*) echo "Look at the TV: choose 'Always allow from this computer' and press OK." ;;
+      *unauthorized*) echo "Look at the TV: choose 'Always allow from this computer' and press OK. Waiting…" ;;
+      device) echo "Connected."; return ;;
       *) "$ADB" connect "$SERIAL" >/dev/null 2>&1 || true ;;
     esac
     sleep 2

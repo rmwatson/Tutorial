@@ -50,7 +50,7 @@ function Connect-TV {
         $state = (& $script:Adb -s $Serial get-state 2>&1) | Out-String
         if ($state -match "unauthorized") {
             Write-Host "Look at the TV: choose 'Always allow from this computer' and press OK."
-        } elseif ($state -match "device") {
+        } elseif ($state.Trim() -eq "device") {
             Write-Host "Connected."; return
         } else {
             & $script:Adb connect $Serial 2>&1 | Out-Null
