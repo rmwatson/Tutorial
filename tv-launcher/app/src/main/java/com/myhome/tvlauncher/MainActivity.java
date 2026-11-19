@@ -88,6 +88,9 @@ public class MainActivity extends Activity {
     /** Tag of the card to focus after rebuilding the screen, e.g. "fav:com.netflix.ninja". */
     private String focusTag;
 
+    private HomeAssistant homeAssistant;
+    private LinearLayout readingsRow;
+    private Map<String, String> lastReadings;
     private Jellyfin jellyfin;
     private LinearLayout jellyfinSection;
     private List<Jellyfin.Item> jellyfinItems;
@@ -95,10 +98,13 @@ public class MainActivity extends Activity {
     private int wideCardWidth;
     private int accentColour;
 
+    private int ticks;
+
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
             updateClock();
+            if (++ticks % 6 == 0) refreshReadings();
             handler.postDelayed(this, 10_000);
         }
     };
@@ -116,6 +122,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = new Prefs(this);
         jellyfin = new Jellyfin(prefs);
+        homeAssistant = new HomeAssistant(prefs);
+        acceptHomeAssistantSetup(getIntent());
         root = new FrameLayout(this);
         setContentView(root);
 
@@ -133,6 +141,7 @@ public class MainActivity extends Activity {
         if (dirty) rebuild();
         handler.post(tick);
         refreshJellyfin();
+        refreshReadings();
     }
 
     @Override
@@ -150,6 +159,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (acceptHomeAssistantSetup(intent)) {
+            rebuild();
+            refreshReadings();
+            return;
+        }
         // Home pressed while already here: jump back to the top.
         if (scroller != null) scroller.smoothScrollTo(0, 0);
         focusTag = null;
@@ -432,12 +446,21 @@ public class MainActivity extends Activity {
         left.addView(date);
         header.addView(left, new LinearLayout.LayoutParams(0, -2, 1f));
 
+        readingsRow = new LinearLayout(this);
+        readingsRow.setOrientation(LinearLayout.HORIZONTAL);
+        readingsRow.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(readingsRow, new LinearLayout.LayoutParams(-2, -2));
+        showReadings();
+
         header.addView(pill("Theme", v -> {
             prefs.setTheme((prefs.theme() + 1) % THEME_NAMES.length);
             Toast.makeText(this, "Theme: " + THEME_NAMES[prefs.theme()], Toast.LENGTH_SHORT).show();
             focusTag = "btn:Theme";
             rebuild();
         }));
+        if (homeAssistant.isConfigured() || prefs.haUrl() != null) {
+            header.addView(pill("Home", v -> safeStart(new Intent(this, HaActivity.class))));
+        }
         header.addView(pill("Options", v -> showOptions()));
         header.addView(pill("TV settings", v -> safeStart(new Intent(Settings.ACTION_SETTINGS))));
         return header;
@@ -598,6 +621,108 @@ public class MainActivity extends Activity {
         int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         String greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
         date.setText(greeting + "  ·  " + new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(now));
+    }
+
+    // ---------------------------------------------------------------- Home Assistant
+
+    /**
+     * Setup from the computer: tv.sh sends the address and token together in one intent.
+     * Both are required, so another app can't point the saved token at a different server.
+     */
+    private boolean acceptHomeAssistantSetup(Intent intent) {
+        if (intent == null) return false;
+        String url = intent.getStringExtra("ha_url");
+        String token = intent.getStringExtra("ha_token");
+        if (url == null || token == null || url.trim().isEmpty() || token.trim().isEmpty()) return false;
+        prefs.setHomeAssistant(HomeAssistant.normaliseUrl(url), token.trim());
+        intent.removeExtra("ha_url");
+        intent.removeExtra("ha_token");
+        Toast.makeText(this, "Home Assistant connected", Toast.LENGTH_SHORT).show();
+        return true;
+    }
+
+    private void refreshReadings() {
+        if (!homeAssistant.isConfigured()) return;
+        homeAssistant.loadReadings((values, error) -> {
+            if (values != null) lastReadings = values;
+            showReadings();
+        });
+    }
+
+    /** Outside temperature, solar and battery next to the clock. */
+    private void showReadings() {
+        if (readingsRow == null) return;
+        readingsRow.removeAllViews();
+        if (lastReadings == null) return;
+        String[] icons = {"🌡", "☀", "🔋"};
+        int i = 0;
+        for (Map.Entry<String, String> e : lastReadings.entrySet()) {
+            LinearLayout block = new LinearLayout(this);
+            block.setOrientation(LinearLayout.VERTICAL);
+            block.setGravity(Gravity.CENTER_HORIZONTAL);
+            block.setPadding(dp(18), 0, dp(18), 0);
+            TextView value = new TextView(this);
+            value.setText((i < icons.length ? icons[i] + " " : "") + e.getValue());
+            value.setTextColor(Color.WHITE);
+            value.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+            TextView label = new TextView(this);
+            label.setText(e.getKey());
+            label.setTextColor(0xB3FFFFFF);
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            block.addView(value);
+            block.addView(label);
+            if (i > 0) {
+                View divider = new View(this);
+                divider.setBackgroundColor(0x33FFFFFF);
+                readingsRow.addView(divider, new LinearLayout.LayoutParams(dp(1), dp(36)));
+            }
+            readingsRow.addView(block);
+            i++;
+        }
+        View spacer = new View(this);
+        readingsRow.addView(spacer, new LinearLayout.LayoutParams(dp(20), 1));
+    }
+
+    private void showHomeAssistantSetup() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(24), dp(8), dp(24), 0);
+        final EditText url = field("Address, e.g. 192.168.1.5:8123", InputType.TYPE_TEXT_VARIATION_URI);
+        if (prefs.haUrl() != null) url.setText(prefs.haUrl());
+        final EditText token = field("Long-lived access token", InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        TextView tip = new TextView(this);
+        tip.setText("Easier: on your computer run  bash tv.sh ha-setup <address> <token>");
+        tip.setTextColor(0x99FFFFFF);
+        tip.setPadding(0, dp(8), 0, 0);
+        form.addView(url);
+        form.addView(token);
+        form.addView(tip);
+        AlertDialog.Builder b = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Home Assistant")
+                .setView(form)
+                .setPositiveButton("Save", (di, w) -> {
+                    String u = url.getText().toString().trim();
+                    String t = token.getText().toString().trim();
+                    if (u.isEmpty() || (t.isEmpty() && prefs.haToken() == null)) {
+                        Toast.makeText(this, "Enter the address and token", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    prefs.setHomeAssistant(HomeAssistant.normaliseUrl(u), t.isEmpty() ? prefs.haToken() : t);
+                    lastReadings = null;
+                    rebuild();
+                    refreshReadings();
+                })
+                .setNegativeButton("Cancel", null);
+        if (prefs.haUrl() != null) {
+            b.setNeutralButton("Disconnect", (di, w) -> {
+                prefs.clearHomeAssistant();
+                lastReadings = null;
+                rebuild();
+            });
+        }
+        AlertDialog d = b.create();
+        d.show();
+        if (d.getWindow() != null) d.getWindow().setBackgroundDrawable(new ColorDrawable(0xF0202124));
     }
 
     // ---------------------------------------------------------------- Jellyfin
@@ -953,6 +1078,8 @@ public class MainActivity extends Activity {
             focusTag = "btn:Options";
             rebuild();
         });
+        labels.add(homeAssistant.isConfigured() ? "Home Assistant: connected (change)" : "Home Assistant: connect");
+        actions.add(this::showHomeAssistantSetup);
         if (jellyfin.isSignedIn()) {
             labels.add("Jellyfin: signed in as " + prefs.jellyfinUserName() + " (sign out)");
             actions.add(() -> {

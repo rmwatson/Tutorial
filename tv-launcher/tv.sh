@@ -5,6 +5,8 @@
 #   ./tv.sh install    Back up, then install My Home and switch on its Home-button service
 #   ./tv.sh revert     Put the TV back how it was: switch the service off and uninstall My Home
 #   ./tv.sh status     Show what's installed and switched on right now
+#   ./tv.sh ha-setup <address> <token>
+#                      Connect My Home to Home Assistant (e.g. 192.168.1.5:8123 and a long-lived token)
 #
 # Settings (optional):  TV=192.168.1.42  PORT=5555  APK=/path/to/MyHome.apk
 set -euo pipefail
@@ -148,6 +150,19 @@ revert() {
   fi
 }
 
+ha_setup() {
+  local url="${1:-}" token="${2:-}"
+  if [ -z "$url" ] || [ -z "$token" ]; then
+    echo "Usage: ./tv.sh ha-setup <address> <token>"
+    echo "  address: how you open Home Assistant, e.g. 192.168.1.5:8123"
+    echo "  token:   Home Assistant > your profile > Security > Long-lived access tokens > Create token"
+    exit 1
+  fi
+  say "Sending the Home Assistant address and token to My Home…"
+  tvsh am start -n "$PKG/.MainActivity" --es ha_url "$url" --es ha_token "$token" >/dev/null
+  echo "Done. The TV should say 'Home Assistant connected', and a Home button appears at the top."
+}
+
 status() {
   say "TV: $(tvsh getprop ro.product.model)"
   if tvsh pm list packages | grep -q -x "package:$PKG"; then
@@ -161,5 +176,6 @@ status() {
 cmd="${1:-}"
 case "$cmd" in
   backup|install|revert|status) connect "$cmd"; "$cmd" ;;
-  *) sed -n '2,10p' "$0"; exit 1 ;;
+  ha-setup) connect "$cmd"; ha_setup "${2:-}" "${3:-}" ;;
+  *) sed -n '2,12p' "$0"; exit 1 ;;
 esac

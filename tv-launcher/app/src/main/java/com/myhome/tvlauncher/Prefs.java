@@ -25,6 +25,8 @@ final class Prefs {
     private static final String KEY_JF_USER_NAME = "jellyfin_user_name";
     private static final String KEY_DEVICE_ID = "device_id";
     private static final String KEY_MY_APPS = "my_apps";
+    private static final String KEY_HA_URL = "ha_url";
+    private static final String KEY_HA_TOKEN = "ha_token";
     private static final String KEY_ONLY_MY_APPS = "only_my_apps";
     private static final String KEY_MISSING = "my_apps_missing";
 
@@ -144,6 +146,20 @@ final class Prefs {
 
     void setMissingApps(String names) {
         sp.edit().putString(KEY_MISSING, names).apply();
+    }
+
+    // ---- Home Assistant (address + long-lived access token)
+
+    String haUrl() { return sp.getString(KEY_HA_URL, null); }
+
+    String haToken() { return sp.getString(KEY_HA_TOKEN, null); }
+
+    void setHomeAssistant(String url, String token) {
+        sp.edit().putString(KEY_HA_URL, url).putString(KEY_HA_TOKEN, token).apply();
+    }
+
+    void clearHomeAssistant() {
+        sp.edit().remove(KEY_HA_URL).remove(KEY_HA_TOKEN).apply();
     }
 
     // ---- Jellyfin (the password is never stored, only the sign-in token)

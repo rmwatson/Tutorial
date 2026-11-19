@@ -13,6 +13,19 @@ opens; any that aren't installed are listed on screen.
 - Reorder or remove one: press and hold OK on it
 - Get the full Favourites + All apps screen back: **Options → Show Favourites and All apps again**
 
+## Home Assistant
+
+The header shows **outside temperature, solar production and battery %**, and a **Home** button
+opens the Home Assistant **TV** dashboard full screen (arrows move, OK presses, Back closes pop-ups
+and returns to My Home).
+
+Setup, once:
+1. In Home Assistant: your profile → **Security** → **Long-lived access tokens** → **Create token**
+   (name it "TV"). Copy it.
+2. On your computer: `bash tv.sh ha-setup 192.168.1.5:8123 <paste token>` (use your own address).
+
+Change or disconnect later in **Options → Home Assistant**.
+
 ## Using it (with the TV remote)
 
 | What | How |

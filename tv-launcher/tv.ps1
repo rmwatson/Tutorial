@@ -4,6 +4,7 @@
 #   .\tv.ps1 install    Back up, then install My Home and switch on its Home-button service
 #   .\tv.ps1 revert     Put the TV back how it was: switch the service off and uninstall My Home
 #   .\tv.ps1 status     Show what's installed and switched on right now
+#   .\tv.ps1 ha-setup <address> <token>   Connect My Home to Home Assistant
 #
 # Options:  -TV 192.168.1.42  -Port 5555  -Apk C:\path\MyHome.apk
 # If Windows blocks the script, run:  powershell -ExecutionPolicy Bypass -File .\tv.ps1 install
@@ -11,7 +12,9 @@ param(
     [Parameter(Position = 0)][string]$Command = "",
     [string]$TV = "192.168.1.42",
     [int]$Port = 5555,
-    [string]$Apk = ""
+    [string]$Apk = "",
+    [Parameter(Position = 1)][string]$HaUrl = "",
+    [Parameter(Position = 2)][string]$HaToken = ""
 )
 # "Continue" so adb messages on stderr (normal) do not stop the script in Windows PowerShell 5.1.
 $ErrorActionPreference = "Continue"
@@ -156,6 +159,16 @@ function Do-Revert {
     }
 }
 
+function Do-HaSetup {
+    if (-not $HaUrl -or -not $HaToken) {
+        Write-Host "Usage: .\tv.ps1 ha-setup <address> <token>   e.g. 192.168.1.5:8123 and a long-lived token"
+        exit 1
+    }
+    Say "Sending the Home Assistant address and token to My Home..."
+    TvSh am start -n "$Pkg/.MainActivity" --es ha_url $HaUrl --es ha_token $HaToken | Out-Null
+    Write-Host "Done. The TV should say 'Home Assistant connected', and a Home button appears at the top."
+}
+
 function Do-Status {
     Say ("TV: " + (TvSh getprop ro.product.model))
     if ((TvSh pm list packages) -contains "package:$Pkg") {
@@ -171,5 +184,6 @@ switch ($Command) {
     "install" { Connect-TV; Do-Install }
     "revert"  { Connect-TV; Do-Revert }
     "status"  { Connect-TV; Do-Status }
-    default   { Get-Content $PSCommandPath -TotalCount 9 | Select-Object -Skip 1 }
+    "ha-setup" { Connect-TV; Do-HaSetup }
+    default   { Get-Content $PSCommandPath -TotalCount 10 | Select-Object -Skip 1 }
 }

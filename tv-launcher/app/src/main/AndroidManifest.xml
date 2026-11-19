@@ -43,6 +43,14 @@
             </intent-filter>
         </activity>
 
+        <!-- The Home Assistant TV dashboard, full screen. -->
+        <activity
+            android:name=".HaActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity" />
+
         <!-- Optional: brings this home screen back whenever the stock Google TV home appears. -->
         <service
             android:name=".HomeButtonService"
