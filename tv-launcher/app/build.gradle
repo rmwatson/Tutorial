@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.myhome.tvlauncher'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.myhome.tvlauncher'
+        minSdk 23
+        targetSdk 35
+        // Each GitHub build gets a higher number so the TV accepts it as an update.
+        versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+        versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '0')
+    }
+
+    // A fixed key, so every new build installs over the old one on the TV.
+    // It only identifies this hobby app; it is not a secret.
+    signingConfigs {
+        shared {
+            storeFile file('launcher.keystore')
+            storePassword 'android'
+            keyAlias 'launcher'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.shared
+        }
+        debug {
+            signingConfig signingConfigs.shared
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
