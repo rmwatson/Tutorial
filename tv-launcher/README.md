@@ -3,6 +3,16 @@
 Your own TV home screen: a big clock, a row of **favourites** you choose and arrange, every app in a
 grid, seven colour themes, and no ads or recommendations.
 
+## My apps
+
+By default the home screen shows just **Continue watching** (Jellyfin) and **My apps**:
+Jellyfin, MLB, NBA, ThreeNow, TVNZ+ and YouTube. They're found by name the first time My Home
+opens; any that aren't installed are listed on screen.
+
+- Change the list: **Options → Choose My apps…**
+- Reorder or remove one: press and hold OK on it
+- Get the full Favourites + All apps screen back: **Options → Show Favourites and All apps again**
+
 ## Using it (with the TV remote)
 
 | What | How |

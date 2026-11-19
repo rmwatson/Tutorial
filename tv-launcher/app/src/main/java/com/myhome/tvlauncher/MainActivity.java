@@ -68,6 +68,16 @@ public class MainActivity extends Activity {
             0xFF8AB4F8, 0xFF9BE7FF, 0xFFFFC371, 0xFF95D5B2, 0xFF7CF5D0, 0xFFFFB38A, 0xFFFFFFFF,
     };
 
+    /** The apps My apps starts with: display name + package names to try first. */
+    private static final String[][] STARTER_APPS = {
+            {"Jellyfin", "org.jellyfin.androidtv"},
+            {"MLB", ""},
+            {"NBA", ""},
+            {"ThreeNow", ""},
+            {"TVNZ+", ""},
+            {"YouTube", "com.google.android.youtube.tv"},
+    };
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Prefs prefs;
     private FrameLayout root;
@@ -208,6 +218,13 @@ public class MainActivity extends Activity {
             fillJellyfinSection();
         }
 
+        if (prefs.myApps() == null) setUpMyApps(apps);
+        if (prefs.onlyMyApps()) {
+            buildMyAppsRow(page, byPackage, side, gap, accent);
+            finishRebuild();
+            return;
+        }
+
         // Favourites row
         page.addView(sectionTitle("Favourites"));
         List<AppEntry> favs = new ArrayList<>();
@@ -266,6 +283,10 @@ public class MainActivity extends Activity {
             row.addView(card, lp);
         }
 
+        finishRebuild();
+    }
+
+    private void finishRebuild() {
         updateClock();
         final String want = focusTag;
         focusTag = null;
@@ -277,6 +298,119 @@ public class MainActivity extends Activity {
             }
             if (target != null) target.requestFocus(); else focusFirstCard();
         });
+    }
+
+    /** One row of hand-picked apps, sized so they all fit across the screen. */
+    private void buildMyAppsRow(LinearLayout page, Map<String, AppEntry> byPackage, int side, int gap, int accent) {
+        page.addView(sectionTitle("My apps"));
+        List<AppEntry> mine = new ArrayList<>();
+        for (String pkg : prefs.myApps()) {
+            AppEntry a = byPackage.get(pkg);
+            if (a != null) mine.add(a);
+        }
+        if (mine.isEmpty()) {
+            page.addView(hint("No apps chosen yet. Go to Options → Choose My apps."));
+        } else {
+            int perRow = Math.max(4, Math.min(6, mine.size()));
+            int screenWidth = getResources().getDisplayMetrics().widthPixels;
+            int w = (screenWidth - 2 * side - (perRow - 1) * gap) / perRow;
+            int h = w * 9 / 16;
+            LinearLayout row = null;
+            for (int i = 0; i < mine.size(); i++) {
+                if (i % perRow == 0) {
+                    row = new LinearLayout(this);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setClipChildren(false);
+                    row.setClipToPadding(false);
+                    row.setPadding(0, dp(12), 0, dp(4));
+                    page.addView(row, new LinearLayout.LayoutParams(-1, -2));
+                }
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, -2);
+                if (i % perRow != 0) lp.leftMargin = gap;
+                row.addView(buildCard(mine.get(i), "my:", w, h, accent), lp);
+            }
+        }
+        String missing = prefs.missingApps();
+        if (!missing.isEmpty()) {
+            page.addView(hint("Not installed on this TV: " + missing
+                    + ". Install from the Play Store, then add via Options → Choose My apps."));
+        }
+    }
+
+    /** First-time setup: find the starter apps by package or by their name on the TV. */
+    private void setUpMyApps(List<AppEntry> apps) {
+        List<String> chosen = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (String[] starter : STARTER_APPS) {
+            AppEntry match = findApp(apps, starter[0], starter[1]);
+            if (match == null) {
+                missing.add(starter[0]);
+            } else if (!chosen.contains(match.packageName)) {
+                chosen.add(match.packageName);
+            }
+        }
+        prefs.setMyApps(chosen);
+        prefs.setMissingApps(TextUtils.join(", ", missing));
+    }
+
+    private static AppEntry findApp(List<AppEntry> apps, String name, String pkg) {
+        for (AppEntry a : apps) if (a.packageName.equals(pkg)) return a;
+        String want = simplify(name);
+        AppEntry best = null;
+        for (AppEntry a : apps) {
+            String label = simplify(a.label);
+            if (label.equals(want)) return a;
+            // e.g. "MLB" matches "MLB.tv"; pick the shortest name so "YouTube" beats "YouTube Kids".
+            if (label.startsWith(want) && (best == null || a.label.length() < best.label.length())) best = a;
+        }
+        return best;
+    }
+
+    private static String simplify(String s) {
+        return s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+
+    private TextView hint(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(0xB3FFFFFF);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        t.setPadding(0, dp(8), 0, dp(16));
+        return t;
+    }
+
+    private void chooseMyApps() {
+        final List<AppEntry> apps = loadApps();
+        final List<String> current = prefs.myApps() == null ? new ArrayList<>() : prefs.myApps();
+        final String[] labels = new String[apps.size()];
+        final boolean[] checked = new boolean[apps.size()];
+        for (int i = 0; i < apps.size(); i++) {
+            labels[i] = apps.get(i).label;
+            checked[i] = current.contains(apps.get(i).packageName);
+        }
+        AlertDialog d = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Choose My apps")
+                .setMultiChoiceItems(labels, checked, (di, which, on) -> checked[which] = on)
+                .setPositiveButton("Done", (di, w) -> {
+                    List<String> result = new ArrayList<>();
+                    // Keep the existing order, then add newly ticked apps at the end.
+                    for (String pkg : current) {
+                        for (int i = 0; i < apps.size(); i++) {
+                            if (apps.get(i).packageName.equals(pkg) && checked[i]) result.add(pkg);
+                        }
+                    }
+                    for (int i = 0; i < apps.size(); i++) {
+                        String pkg = apps.get(i).packageName;
+                        if (checked[i] && !result.contains(pkg)) result.add(pkg);
+                    }
+                    prefs.setMyApps(result);
+                    prefs.setMissingApps("");
+                    rebuild();
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        d.show();
+        if (d.getWindow() != null) d.getWindow().setBackgroundDrawable(new ColorDrawable(0xF0202124));
     }
 
     private View buildHeader() {
@@ -445,7 +579,7 @@ public class MainActivity extends Activity {
     }
 
     private View findFirstCard(View v) {
-        if (v.getTag() instanceof String && ((String) v.getTag()).matches("(jf|fav|all):.*")) return v;
+        if (v.getTag() instanceof String && ((String) v.getTag()).matches("(jf|my|fav|all):.*")) return v;
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
             for (int i = 0; i < g.getChildCount(); i++) {
@@ -751,6 +885,25 @@ public class MainActivity extends Activity {
         final List<String> labels = new ArrayList<>();
         final List<Runnable> actions = new ArrayList<>();
 
+        if (tag.startsWith("my:")) {
+            labels.add("Move left");
+            actions.add(() -> { prefs.moveMyApp(pkg, -1); focusTag = tag; rebuild(); });
+            labels.add("Move right");
+            actions.add(() -> { prefs.moveMyApp(pkg, 1); focusTag = tag; rebuild(); });
+            labels.add("Remove from My apps");
+            actions.add(() -> {
+                List<String> mine = prefs.myApps();
+                if (mine != null) { mine.remove(pkg); prefs.setMyApps(mine); }
+                rebuild();
+            });
+            labels.add("App info");
+            actions.add(() -> safeStart(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+            focusTag = tag;
+            dialog(app.label, labels, actions);
+            return;
+        }
+
         labels.add(fav ? "Remove from favourites" : "Add to favourites");
         actions.add(() -> { prefs.toggleFavourite(pkg); focusTag = (fav ? "all:" : "fav:") + pkg; rebuild(); });
         if (fav) {
@@ -777,6 +930,11 @@ public class MainActivity extends Activity {
         final List<Runnable> actions = new ArrayList<>();
         final boolean takeOver = prefs.takeOverHome();
 
+        final boolean only = prefs.onlyMyApps();
+        labels.add("Choose My apps…");
+        actions.add(this::chooseMyApps);
+        labels.add(only ? "Show Favourites and All apps again" : "Show only My apps");
+        actions.add(() -> { prefs.setOnlyMyApps(!only); rebuild(); });
         labels.add("Home button opens My Home: " + (takeOver ? "ON" : "OFF"));
         actions.add(() -> {
             prefs.setTakeOverHome(!takeOver);

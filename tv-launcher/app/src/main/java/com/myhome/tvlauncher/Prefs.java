@@ -24,6 +24,9 @@ final class Prefs {
     private static final String KEY_JF_USER_ID = "jellyfin_user_id";
     private static final String KEY_JF_USER_NAME = "jellyfin_user_name";
     private static final String KEY_DEVICE_ID = "device_id";
+    private static final String KEY_MY_APPS = "my_apps";
+    private static final String KEY_ONLY_MY_APPS = "only_my_apps";
+    private static final String KEY_MISSING = "my_apps_missing";
 
     private final SharedPreferences sp;
 
@@ -101,6 +104,46 @@ final class Prefs {
 
     void setColumns(int columns) {
         sp.edit().putInt(KEY_COLUMNS, columns).apply();
+    }
+
+    // ---- "My apps": a short hand-picked list shown instead of Favourites + All apps
+
+    /** Null until the list has been set up for the first time. */
+    List<String> myApps() {
+        String raw = sp.getString(KEY_MY_APPS, null);
+        return raw == null ? null : split(raw);
+    }
+
+    void setMyApps(List<String> packages) {
+        sp.edit().putString(KEY_MY_APPS, TextUtils.join(",", packages)).apply();
+    }
+
+    void moveMyApp(String pkg, int delta) {
+        List<String> apps = myApps();
+        if (apps == null) return;
+        int from = apps.indexOf(pkg);
+        int to = from + delta;
+        if (from < 0 || to < 0 || to >= apps.size()) return;
+        apps.remove(from);
+        apps.add(to, pkg);
+        setMyApps(apps);
+    }
+
+    boolean onlyMyApps() {
+        return sp.getBoolean(KEY_ONLY_MY_APPS, true);
+    }
+
+    void setOnlyMyApps(boolean on) {
+        sp.edit().putBoolean(KEY_ONLY_MY_APPS, on).apply();
+    }
+
+    /** Names of starter apps that weren't installed when My apps was set up. */
+    String missingApps() {
+        return sp.getString(KEY_MISSING, "");
+    }
+
+    void setMissingApps(String names) {
+        sp.edit().putString(KEY_MISSING, names).apply();
     }
 
     // ---- Jellyfin (the password is never stored, only the sign-in token)
